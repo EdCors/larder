@@ -96,6 +96,43 @@ export function parseIngredientLine(raw) {
 
 const cleanStep = (s) => s.replace(/^step\s*\d+\s*[:.)\-]?\s*/i, '').replace(/^\d+\s*[.)\-]\s*/, '').trim();
 
+/* Steps sometimes arrive glued together ("1. Boil 2. Fry" in one line, or a
+   whole method as a single paragraph). Cook mode wants one action per step,
+   so split at inline numbering and, for long paragraphs, at sentence
+   boundaries in readable chunks. */
+function splitInlineNumbers(text) {
+  const markers = [...text.matchAll(/(?:^|\s)\d{1,2}[.)]\s+/g)];
+  if (markers.length < 2) return null; // needs "1. … 2. …" to be numbering
+  const parts = text.split(/(?:^|\s)\d{1,2}[.)]\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p.replace(/[^A-Za-z]/g, '').length >= 3);
+  return parts.length >= 2 ? parts : null;
+}
+
+export function normalizeSteps(steps) {
+  const out = [];
+  for (const raw of steps) {
+    const step = String(raw).trim();
+    if (!step) continue;
+    const inline = splitInlineNumbers(step);
+    if (inline) { out.push(...inline); continue; }
+    if (step.length > 180) {
+      const sentences = step.replace(/([.!?])\s+(?=[A-Z0-9])/g, '$1\n').split('\n');
+      if (sentences.length > 1) {
+        let buffer = '';
+        for (const sentence of sentences) {
+          if (buffer && buffer.length + sentence.length + 1 > 140) { out.push(buffer); buffer = sentence; }
+          else buffer = buffer ? `${buffer} ${sentence}` : sentence;
+        }
+        if (buffer) out.push(buffer);
+        continue;
+      }
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 export function parseRecipeText(raw) {
   let text = String(raw || '');
 
@@ -191,5 +228,5 @@ export function parseRecipeText(raw) {
     // 8) Anything else is caption chatter — dropped, not misfiled.
   }
 
-  return { onlyUrl: false, title, servings, ingredients, steps, sourceUrl };
+  return { onlyUrl: false, title, servings, ingredients, steps: normalizeSteps(steps), sourceUrl };
 }

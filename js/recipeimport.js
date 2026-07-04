@@ -4,7 +4,7 @@
    (social pages often expose it even while blocking scrapers) → page text.
    Failures are surfaced to the caller — never silent. */
 
-import { parseRecipeText, parseIngredientLine } from './recipeparse.js';
+import { parseRecipeText, parseIngredientLine, normalizeSteps } from './recipeparse.js';
 
 const RELAYS = [
   { name: 'allorigins', kind: 'html', url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
@@ -64,8 +64,13 @@ function parseYield(y) {
 function stepsFrom(instructions, out = []) {
   if (!instructions) return out;
   if (typeof instructions === 'string') {
-    const t = stripHtml(instructions);
-    if (t) out.push(...t.split(/\n+/).map((s) => s.trim()).filter(Boolean));
+    // Whole method as one HTML string: block tags mark step boundaries.
+    const lines = instructions
+      .replace(/<(br|\/p|\/li|\/div)[^>]*>/gi, '\n')
+      .split('\n')
+      .map((line) => stripHtml(line))
+      .filter(Boolean);
+    out.push(...lines);
     return out;
   }
   if (Array.isArray(instructions)) {
@@ -115,7 +120,7 @@ function fromJsonLd(doc, sourceUrl) {
     title: stripHtml(r.name || ''),
     servings: parseYield(r.recipeYield ?? r.yield) || 2,
     ingredients,
-    steps: stepsFrom(r.recipeInstructions),
+    steps: normalizeSteps(stepsFrom(r.recipeInstructions)),
     sourceUrl,
   };
 }
