@@ -29,6 +29,23 @@ const UNIT_ALIASES = {
 const INGREDIENTS_HEADER = /^\s*(ingredients?|you.?ll need|what you.?ll? need|shopping list)\b/i;
 const METHOD_HEADER = /^\s*(method|instructions?|directions?|steps|preparation|to make|how to)\b/i;
 
+/* Signals for classifying header-less text (Instagram/TikTok captions). */
+const COOKING_VERBS = new Set([
+  'add', 'mix', 'stir', 'blend', 'cook', 'bake', 'fry', 'heat', 'preheat', 'pour', 'whisk',
+  'combine', 'serve', 'top', 'season', 'simmer', 'boil', 'roast', 'grill', 'chop', 'slice',
+  'dice', 'melt', 'place', 'drain', 'toss', 'garnish', 'fold', 'beat', 'knead', 'rest',
+  'marinate', 'cover', 'remove', 'transfer', 'sprinkle', 'drizzle', 'repeat', 'enjoy', 'let',
+  'bring', 'reduce', 'spread', 'layer', 'assemble', 'microwave', 'flip', 'cool', 'chill',
+  'freeze', 'squeeze', 'grate', 'crumble', 'rub', 'brush', 'roll', 'cut', 'mash', 'puree',
+  'saute', 'sear', 'coat', 'dip', 'shake', 'strain', 'scoop', 'arrange', 'divide', 'warm',
+  'pat', 'crack', 'grease', 'blitz', 'whizz', 'tip', 'fill', 'wrap', 'press', 'stack', 'swirl',
+]);
+const SOCIAL_NOISE = /\b(follow|like and|tag a|tag your|link in bio|save this|comment|subscribe|dm me|recipe (below|in bio)|full recipe|tried this|let me know|watch (the|my)|tutorial|giveaway|credit|via @|shop |use code)\b/i;
+const NUMBERED_STEP = /^(?:step\s*\d+\s*[:.)-]?|\d+\s*[.):])\s+/i;
+
+const firstWord = (s) => (s.match(/[a-zA-Z']+/) || [''])[0].toLowerCase();
+const containsCookingVerb = (s) => s.toLowerCase().split(/[^a-z']+/).some((w) => COOKING_VERBS.has(w));
+
 const stripEmoji = (s) => s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '').trim();
 
 function parseAmount(token) {
@@ -101,43 +118,77 @@ export function parseRecipeText(raw) {
   const ingredients = [];
   const steps = [];
   let section = null; // null | 'ing' | 'steps'
+  let lastKind = null; // classification of the previous header-less line
   const hasIngHeader = lines.some((l) => INGREDIENTS_HEADER.test(l));
 
-  for (const rawLine of lines) {
-    const line = rawLine;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (INGREDIENTS_HEADER.test(line)) { section = 'ing'; continue; }
     if (METHOD_HEADER.test(line)) { section = 'steps'; continue; }
     if (/^(serves?|servings?|makes|feeds)\s*:?\s*\d/i.test(line)) continue;
 
     if (!title && !section) {
-      const t = stripEmoji(line).replace(/[!.]+$/, '').trim();
+      let t = stripEmoji(line).replace(/[!.]+$/, '').trim();
+      const letters = t.replace(/[^A-Za-z]/g, '');
+      if (letters.length >= 4 && letters.replace(/[^A-Z]/g, '').length / letters.length > 0.7) {
+        t = t.toLowerCase().replace(/(^|\s)[a-z]/g, (c) => c.toUpperCase());
+      }
       if (t && t.length <= 80) { title = t; continue; }
     }
     // With an explicit Ingredients header, anything before it is preamble.
     if (!section && hasIngHeader) continue;
 
     if (section === 'ing') {
+      if (SOCIAL_NOISE.test(line)) continue;
       const ing = parseIngredientLine(line);
       if (ing) ingredients.push(ing);
       continue;
     }
     if (section === 'steps') {
+      if (SOCIAL_NOISE.test(line)) continue;
       const step = cleanStep(stripEmoji(line));
       if (step) steps.push(step);
       continue;
     }
 
-    // No headers found yet: classify by shape. Lines that start with an
-    // amount look like ingredients; short fragments too; sentences are steps.
-    const ing = parseIngredientLine(line);
-    if (ing && ing.amount != null) { ingredients.push(ing); continue; }
+    // No headers (typical Instagram/TikTok caption): classify each line.
     const plain = stripEmoji(line);
-    if (plain.length < 40 && !/[.!?]$/.test(plain) && plain.split(' ').length <= 6) {
-      const short = parseIngredientLine(plain);
-      if (short) { ingredients.push(short); continue; }
+    // 1) Social chatter and bare @mentions are neither.
+    if (SOCIAL_NOISE.test(plain) || /^@[\w.]+$/.test(plain)) continue;
+    // 2) Explicit numbering is an instruction, even though it starts with a digit.
+    if (NUMBERED_STEP.test(plain)) {
+      const step = cleanStep(plain);
+      if (step) { steps.push(step); lastKind = 'step'; }
+      continue;
     }
-    const step = cleanStep(plain);
-    if (step) steps.push(step);
+    // 3) A leading amount is an ingredient.
+    const ing = parseIngredientLine(line);
+    if (ing && ing.amount != null) { ingredients.push(ing); lastKind = 'ing'; continue; }
+    // 4) Imperative cooking verb up front is an instruction ("Blend until smooth").
+    if (COOKING_VERBS.has(firstWord(plain))) {
+      const step = cleanStep(plain);
+      if (step) { steps.push(step); lastKind = 'step'; }
+      continue;
+    }
+    // 5) Questions are engagement bait, not recipe content.
+    if (/\?\s*$/.test(plain)) continue;
+    // 6) Sentences that talk about cooking are instructions ("Once boiling, reduce the heat").
+    if (containsCookingVerb(plain) && (/[.!]\s*$/.test(plain) || plain.length >= 30)) {
+      const step = cleanStep(plain);
+      if (step) { steps.push(step); lastKind = 'step'; }
+      continue;
+    }
+    // 7) Short unquantified lines ("Parmesan", "Salt & pepper") count as
+    //    ingredients only when they sit inside an ingredient block.
+    if (plain.length < 40 && plain.split(/\s+/).length <= 6) {
+      const next = i + 1 < lines.length ? parseIngredientLine(lines[i + 1]) : null;
+      const nextIsIngredient = next && next.amount != null && !NUMBERED_STEP.test(lines[i + 1]);
+      if (lastKind === 'ing' || nextIsIngredient) {
+        const short = parseIngredientLine(plain);
+        if (short) { ingredients.push(short); lastKind = 'ing'; continue; }
+      }
+    }
+    // 8) Anything else is caption chatter — dropped, not misfiled.
   }
 
   return { onlyUrl: false, title, servings, ingredients, steps, sourceUrl };
