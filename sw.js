@@ -1,5 +1,5 @@
 /* Larder service worker — app-shell caching for offline use. */
-const VERSION = 'v8.1.0';
+const VERSION = 'v8.2.0';
 const CACHE = `larder-${VERSION}`;
 
 const ASSETS = [
@@ -20,6 +20,7 @@ const ASSETS = [
   'js/usda.js',
   'js/orderparse.js',
   'js/recipeparse.js',
+  'js/recipeimport.js',
   'js/recommend.js',
   'js/scanner.js',
   'js/vendor/zxing.min.js',

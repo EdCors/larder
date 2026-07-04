@@ -269,6 +269,7 @@ async function openRecipeDetail(id) {
     const cost = recipeCost(recipe, freshPantry);
     if (cost.perServe != null) meta.push(`~${fmtMoney(cost.perServe)}/serve${cost.known < cost.count ? ` (${cost.known} of ${cost.count} priced)` : ''}`);
     if (recipe.source === 'paste') meta.push('from paste');
+    if (recipe.source === 'link') meta.push('from link');
 
     const ingCard = el('div', { class: 'card', style: 'margin-top:8px' });
     for (const ing of recipe.ingredients) {

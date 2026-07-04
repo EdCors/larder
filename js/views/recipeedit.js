@@ -5,20 +5,70 @@ import { el, openSheet, toast } from '../ui.js';
 import { dbPut, dbDel, uuid } from '../db.js';
 import { INGREDIENT_UNITS } from '../units.js';
 import { parseRecipeText } from '../recipeparse.js';
+import { importFromUrl } from '../recipeimport.js';
 
 const X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 export function openRecipePaste({ onSaved }) {
   openSheet({
-    title: 'Paste a recipe',
+    title: 'Add from link or text',
     build(body, api) {
+      let lastUrl = null; // kept as source when falling back to pasted text
+      let fetching = false;
+
+      const urlInput = el('input', {
+        class: 'field-input', type: 'url', autocomplete: 'off', autocapitalize: 'off',
+        placeholder: 'https://… recipe page or video link',
+      });
+      const fetchBtn = el('button', { class: 'btn btn-primary fetch-btn' }, 'Fetch');
+      const status = el('div', { class: 'form-hint' });
       const ta = el('textarea', {
-        class: 'field-input order-paste', rows: '8',
-        placeholder: 'Paste recipe text — an Instagram caption, a web page, your notes. Larder can’t fetch links itself, so paste the words.',
+        class: 'field-input order-paste', rows: '6',
+        placeholder: 'Paste the caption or recipe text here.',
       });
       const err = el('div', { class: 'form-hint form-warn' });
+
+      function openEditorWith(recipe, from) {
+        api.close();
+        openRecipeEditor({ ...recipe, source: 'link' }, { onSaved, extracted: true, extractedFrom: from });
+      }
+
+      async function runFetch(rawUrl) {
+        if (fetching) return;
+        fetching = true;
+        fetchBtn.disabled = true;
+        err.textContent = '';
+        status.textContent = 'Fetching the page…';
+        const res = await importFromUrl(rawUrl, (msg) => { status.textContent = msg; });
+        fetching = false;
+        fetchBtn.disabled = false;
+        status.textContent = '';
+        if (res.status === 'ok') {
+          let host = '';
+          try { host = new URL(res.recipe.sourceUrl).hostname.replace(/^www\./, ''); } catch { /* noop */ }
+          openEditorWith(res.recipe, host || 'the page');
+          return;
+        }
+        if (res.status === 'badurl') {
+          err.textContent = 'That doesn’t look like a web link.';
+          return;
+        }
+        lastUrl = rawUrl.trim();
+        err.textContent = 'Couldn’t get a recipe from that page — Instagram and TikTok usually block automated access. Open the post, copy the caption, and paste it below instead.';
+        ta.focus();
+      }
+
+      fetchBtn.addEventListener('click', () => {
+        const raw = urlInput.value.trim();
+        if (raw) runFetch(raw);
+        else urlInput.focus();
+      });
+
       body.append(
-        el('div', { class: 'form-label' }, 'Recipe text'),
+        el('div', { class: 'form-label' }, 'Link'),
+        el('div', { class: 'fetch-row' }, urlInput, fetchBtn),
+        status,
+        el('div', { class: 'or-label' }, 'or paste the text'),
         ta, err,
         el('div', { class: 'sheet-actions' },
           el('button', {
@@ -26,7 +76,9 @@ export function openRecipePaste({ onSaved }) {
             onclick: () => {
               const parsed = parseRecipeText(ta.value);
               if (parsed.onlyUrl) {
-                err.textContent = 'That’s just a link — Instagram and most sites block fetching. Open the post and paste the caption or recipe text.';
+                // A bare link in the text box — just fetch it.
+                urlInput.value = parsed.sourceUrl;
+                runFetch(parsed.sourceUrl);
                 return;
               }
               if (!parsed.title && !parsed.ingredients.length && !parsed.steps.length) {
@@ -39,19 +91,19 @@ export function openRecipePaste({ onSaved }) {
                 servings: parsed.servings || 2,
                 ingredients: parsed.ingredients,
                 steps: parsed.steps,
-                sourceUrl: parsed.sourceUrl,
+                sourceUrl: parsed.sourceUrl || lastUrl,
                 source: 'paste',
               }, { onSaved, extracted: true });
             },
-          }, 'Extract recipe')
+          }, 'Extract from text')
         )
       );
-      setTimeout(() => ta.focus(), 120);
+      setTimeout(() => urlInput.focus(), 120);
     },
   });
 }
 
-export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted = false } = {}) {
+export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted = false, extractedFrom = null } = {}) {
   const existing = !!initial.id;
   const ingRows = [];
 
@@ -93,7 +145,10 @@ export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted =
       el('div', { class: 'o-title' }, el('h2', {}, existing ? 'Edit recipe' : 'New recipe'))
     ),
     el('div', { class: 'o-list' },
-      extracted ? el('div', { class: 'notfound-note' }, 'Extracted from your pasted text — check everything below before saving.') : null,
+      extracted
+        ? el('div', { class: 'notfound-note' },
+            `Extracted from ${extractedFrom || 'your pasted text'} — check everything below before saving.`)
+        : null,
       el('div', { class: 'form-label' }, 'Title'),
       titleInput,
       el('div', { class: 'form-label' }, 'Serves'),
