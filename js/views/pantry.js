@@ -1,7 +1,8 @@
 /* Pantry view: quick add, barcode scanning, edit/delete, search, sort. */
 
 import { dbAll, dbPut, dbDel, uuid } from '../db.js';
-import { $, el, debounce, openSheet, toast, daysUntil, fmtDateShort, expiryInfo } from '../ui.js';
+import { $, el, debounce, openSheet, confirmSheet, toast, daysUntil, fmtDateShort, expiryInfo } from '../ui.js';
+import { exportBackup, validateBackup, summarizeBackup, applyBackup } from '../backup.js';
 import { formatQty, catById } from '../units.js';
 import { buildItemForm } from '../itemform.js';
 import { openScanner } from '../scanner.js';
@@ -27,9 +28,15 @@ let sort = localStorage.getItem('larder.sort') || 'name';
 let listEl = null;
 let ctxRef = null;
 
+const DOTS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>';
+
 export const pantryView = {
   async mount(container, ctx) {
     ctxRef = ctx;
+    ctx.setActions(el('button', {
+      class: 'icon-btn', 'aria-label': 'Pantry options', html: DOTS_ICON,
+      onclick: openPantryMenu,
+    }));
     container.append(buildToolbar());
     listEl = el('div', { class: 'list-area' });
     container.append(listEl);
@@ -65,6 +72,132 @@ function updateSubtitle() {
   if (expired) extra = ` · ${expired} expired`;
   else if (soon) extra = ` · ${soon} expiring soon`;
   ctxRef.setSubtitle(`${items.length} item${items.length === 1 ? '' : 's'}${extra}`);
+}
+
+/* ── Overflow menu: backup, restore, bulk clean-ups ── */
+
+const EXPORT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5M4.5 18.5h15"/></svg>';
+const IMPORT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7.5 7.5L12 3l4.5 4.5M4.5 18.5h15"/></svg>';
+const CLOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+const BIN_ICON2 = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13.5h9l1-13.5M10 11v6M14 11v6"/></svg>';
+
+function menuRow({ icon, title, sub, danger, disabled, onclick }) {
+  return el('button', { class: `menu-row${danger ? ' danger' : ''}`, disabled: !!disabled, onclick },
+    el('span', { html: icon }),
+    el('div', { class: 'menu-main' },
+      el('div', { class: 'menu-title' }, title),
+      sub ? el('div', { class: 'menu-sub' }, sub) : null
+    )
+  );
+}
+
+function openPantryMenu() {
+  const expired = items.filter((i) => i.expiryDate && daysUntil(i.expiryDate) < 0);
+
+  openSheet({
+    title: 'Pantry options',
+    build(body, api) {
+      const fileInput = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (file) handleImportFile(file);
+      });
+
+      body.append(
+        el('div', { class: 'card', style: 'margin-top:6px' },
+          menuRow({
+            icon: EXPORT_ICON,
+            title: 'Export backup',
+            sub: 'Save a file with all your Larder data',
+            onclick: async () => {
+              api.close();
+              const result = await exportBackup();
+              if (result !== 'cancelled') toast('Backup exported');
+            },
+          }),
+          menuRow({
+            icon: IMPORT_ICON,
+            title: 'Import backup',
+            sub: 'Restore from an exported file — replaces current data',
+            onclick: () => fileInput.click(),
+          }),
+          menuRow({
+            icon: CLOCK_ICON,
+            title: 'Remove expired items',
+            sub: expired.length
+              ? `${expired.length} item${expired.length === 1 ? '' : 's'} past expiry`
+              : 'Nothing is past its expiry date',
+            disabled: !expired.length,
+            onclick: () => {
+              const names = expired.slice(0, 3).map((i) => i.name).join(', ') + (expired.length > 3 ? '…' : '');
+              confirmSheet({
+                title: 'Remove expired items',
+                message: `This deletes ${expired.length} expired item${expired.length === 1 ? '' : 's'} from your pantry: ${names}`,
+                confirmLabel: `Remove ${expired.length}`,
+                onConfirm: async () => {
+                  for (const item of expired) await dbDel('pantry', item.id);
+                  await refresh();
+                  toast(`Removed ${expired.length} expired item${expired.length === 1 ? '' : 's'}`, {
+                    action: 'Undo',
+                    onAction: async () => { for (const item of expired) await dbPut('pantry', item); await refresh(); },
+                  });
+                },
+              });
+            },
+          }),
+          menuRow({
+            icon: BIN_ICON2,
+            title: 'Clear entire pantry',
+            sub: 'Recipes, plans and logs are kept',
+            danger: true,
+            disabled: !items.length,
+            onclick: () => {
+              const all = [...items];
+              confirmSheet({
+                title: 'Clear entire pantry',
+                message: `This deletes all ${all.length} pantry items. Recipes, meal plans, nutrition and waste logs are not affected.`,
+                confirmLabel: 'Delete all',
+                onConfirm: async () => {
+                  for (const item of all) await dbDel('pantry', item.id);
+                  await refresh();
+                  toast(`Cleared ${all.length} items`, {
+                    action: 'Undo',
+                    onAction: async () => { for (const item of all) await dbPut('pantry', item); await refresh(); },
+                  });
+                },
+              });
+            },
+          })
+        ),
+        fileInput
+      );
+    },
+  });
+}
+
+async function handleImportFile(file) {
+  let backup = null;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    toast('That file isn’t valid JSON');
+    return;
+  }
+  if (!validateBackup(backup)) {
+    toast('That doesn’t look like a Larder backup file');
+    return;
+  }
+  const s = summarizeBackup(backup);
+  const when = s.exportedAt ? new Date(s.exportedAt).toLocaleDateString() : 'unknown date';
+  confirmSheet({
+    title: 'Restore backup',
+    message: `Backup from ${when}: ${s.pantry} pantry items, ${s.recipes} recipes, ${s.mealPlans} planned meals, ${s.shopping} shopping items, ${s.nutritionLogs} nutrition entries, ${s.wasteLog} waste entries. This replaces ALL current Larder data on this device.`,
+    confirmLabel: 'Replace & restore',
+    onConfirm: async () => {
+      await applyBackup(backup);
+      location.reload();
+    },
+  });
 }
 
 /* ── Scanning flow ── */

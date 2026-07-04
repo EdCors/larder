@@ -86,6 +86,25 @@ export function openSheet({ title, build, onClose }) {
   return api;
 }
 
+/* Confirmation gate for destructive actions. */
+export function confirmSheet({ title, message, confirmLabel, danger = true, onConfirm }) {
+  openSheet({
+    title,
+    build(body, api) {
+      body.append(
+        el('p', { class: 'confirm-msg' }, message),
+        el('div', { class: 'sheet-actions' },
+          el('button', { class: 'btn btn-secondary', onclick: () => api.close() }, 'Cancel'),
+          el('button', {
+            class: `btn ${danger ? 'btn-danger' : 'btn-primary'}`,
+            onclick: () => { api.close(); onConfirm(); },
+          }, confirmLabel)
+        )
+      );
+    },
+  });
+}
+
 /* ── Toast ── */
 let toastTimer = null;
 

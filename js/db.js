@@ -49,6 +49,7 @@ export const dbAll = (store) => tx(store, 'readonly', (s) => s.getAll());
 export const dbGet = (store, key) => tx(store, 'readonly', (s) => s.get(key));
 export const dbPut = (store, value) => tx(store, 'readwrite', (s) => s.put(value));
 export const dbDel = (store, key) => tx(store, 'readwrite', (s) => s.delete(key));
+export const dbClear = (store) => tx(store, 'readwrite', (s) => s.clear());
 
 export const uuid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);

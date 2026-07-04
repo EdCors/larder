@@ -28,6 +28,11 @@ let currentTab = null;
 
 const ctx = {
   setSubtitle(text) { $('#headerSub').textContent = text || ''; },
+  setActions(node) {
+    const slot = $('#headerActions');
+    slot.innerHTML = '';
+    if (node) slot.append(node);
+  },
 };
 
 function placeholder(tab) {
@@ -48,6 +53,7 @@ export function switchTab(id) {
   }
   $('#headerTitle').textContent = tab.title;
   ctx.setSubtitle('');
+  ctx.setActions(null);
 
   const view = $('#view');
   view.innerHTML = '';
