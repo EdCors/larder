@@ -1,7 +1,7 @@
 /* App shell: tabs, view switching, service worker registration. */
 
 import { openDB } from './db.js';
-import { $, el } from './ui.js';
+import { $, el, toast } from './ui.js';
 import { pantryView } from './views/pantry.js';
 import { recipesView } from './views/recipes.js';
 import { planView } from './views/plan.js';
@@ -95,6 +95,14 @@ async function boot() {
   switchTab('pantry');
 
   if ('serviceWorker' in navigator) {
+    // Only an update produces a controllerchange while a controller already
+    // exists — first installs don't trigger the toast.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) {
+        toast('Larder updated — reopen the app to finish', { duration: 8000 });
+      }
+    });
     navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW registration failed', err));
   }
 }

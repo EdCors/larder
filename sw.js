@@ -1,5 +1,5 @@
 /* Larder service worker — app-shell caching for offline use. */
-const VERSION = 'v8.2.2';
+const VERSION = 'v8.2.3';
 const CACHE = `larder-${VERSION}`;
 
 const ASSETS = [
