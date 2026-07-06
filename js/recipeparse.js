@@ -27,7 +27,21 @@ const UNIT_ALIASES = {
 };
 
 const INGREDIENTS_HEADER = /^\s*(ingredients?|you.?ll need|what you.?ll? need|shopping list)\b/i;
-const METHOD_HEADER = /^\s*(method|instructions?|directions?|steps|preparation|to make|how to)\b/i;
+const METHOD_HEADER = /^\s*(?:cooking\s+|the\s+)?(method|instructions?|directions?|steps|preparation|to make|how to)\b/i;
+const TIPS_HEADER = /^\s*(storage|reheating|notes?|tips?|nutrition(al)?|macros|serving suggestion)/i;
+
+/* Section headers are short labels, not sentences. */
+const isHeader = (line, re) => re.test(line) && line.split(/\s+/).length <= 5 && !/[.!?]$/.test(line.trim());
+
+/* A line that is ONLY an amount ("600 g", "2.5 tsp", "10") — some formats
+   put the ingredient name on the following line. */
+const UNIT_WORD = /^(g|gr|grams?|kg|kilos?|ml|l|litres?|liters?|cups?|tbsp|tbs|tablespoons?|tsp|teaspoons?|cloves?|cans?|tins?|jars?|bottles?|slices?|pinch(es)?|bunch(es)?|packs?|packets?|sprigs?|handfuls?|each|ea|box(es)?|dozen)$/i;
+function amountOnly(line) {
+  const m = line.trim().match(/^((?:\d+\s+\d\/\d)|(?:\d+\/\d)|(?:\d+(?:[.,]\d+)?)|(?:\d*\s*[½⅓⅔¼¾⅛]))\s*([a-zA-Z]+)?\.?$/);
+  if (!m) return null;
+  if (m[2] && !UNIT_WORD.test(m[2])) return null;
+  return `${m[1]}${m[2] ? ` ${m[2]}` : ''}`.trim();
+}
 
 /* Signals for classifying header-less text (Instagram/TikTok captions). */
 const COOKING_VERBS = new Set([
@@ -154,14 +168,18 @@ export function parseRecipeText(raw) {
   let title = '';
   const ingredients = [];
   const steps = [];
-  let section = null; // null | 'ing' | 'steps'
+  let section = null; // null | 'ing' | 'steps' | 'other'
   let lastKind = null; // classification of the previous header-less line
-  const hasIngHeader = lines.some((l) => INGREDIENTS_HEADER.test(l));
+  let pendingAmount = null; // "600 g" on its own line, name expected next
+  let firstGroupLabel = ''; // sub-heading like "Garlic Parmesan Chicken"
+  const hasIngHeader = lines.some((l) => isHeader(l, INGREDIENTS_HEADER));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (INGREDIENTS_HEADER.test(line)) { section = 'ing'; continue; }
-    if (METHOD_HEADER.test(line)) { section = 'steps'; continue; }
+    if (isHeader(line, INGREDIENTS_HEADER)) { section = 'ing'; pendingAmount = null; continue; }
+    if (isHeader(line, METHOD_HEADER)) { section = 'steps'; pendingAmount = null; continue; }
+    if (isHeader(line, TIPS_HEADER)) { section = 'other'; pendingAmount = null; continue; }
+    if (section === 'other') continue;
     if (/^(serves?|servings?|makes|feeds)\s*:?\s*\d/i.test(line)) continue;
 
     if (!title && !section) {
@@ -177,12 +195,30 @@ export function parseRecipeText(raw) {
 
     if (section === 'ing') {
       if (SOCIAL_NOISE.test(line)) continue;
-      const ing = parseIngredientLine(line);
+      // Amount on its own line — hold it for the ingredient name that follows.
+      const amt = amountOnly(line);
+      if (amt != null) { pendingAmount = amt; continue; }
+      let text = line;
+      if (pendingAmount) {
+        text = `${pendingAmount} ${line}`;
+        pendingAmount = null;
+      } else {
+        // An unquantified line right before an amount-only line is a group
+        // label ("Creamy Sauce"), not an ingredient. Keep the first as a
+        // title candidate — it's usually the dish name.
+        const next = i + 1 < lines.length ? lines[i + 1] : '';
+        if (amountOnly(next) != null) {
+          if (!firstGroupLabel) firstGroupLabel = stripEmoji(line);
+          continue;
+        }
+      }
+      const ing = parseIngredientLine(text);
       if (ing) ingredients.push(ing);
       continue;
     }
     if (section === 'steps') {
       if (SOCIAL_NOISE.test(line)) continue;
+      if (/^\d+\s*[.):]?$/.test(line.trim())) continue; // step number on its own line
       const step = cleanStep(stripEmoji(line));
       if (step) steps.push(step);
       continue;
@@ -198,7 +234,24 @@ export function parseRecipeText(raw) {
       if (step) { steps.push(step); lastKind = 'step'; }
       continue;
     }
-    // 3) A leading amount is an ingredient.
+    // 3) A leading amount is an ingredient. An amount alone on its own line
+    //    pairs with the next line — unless that line reads like an
+    //    instruction, in which case the number was step numbering.
+    const bare = amountOnly(plain);
+    if (bare != null && i + 1 < lines.length) {
+      const nextLine = stripEmoji(lines[i + 1]);
+      if (!COOKING_VERBS.has(firstWord(nextLine)) && nextLine.length < 60) {
+        const combined = parseIngredientLine(`${bare} ${nextLine}`);
+        if (combined && combined.amount != null) {
+          ingredients.push(combined);
+          lastKind = 'ing';
+          i++;
+          continue;
+        }
+      } else {
+        continue; // bare step number — the instruction line classifies itself
+      }
+    }
     const ing = parseIngredientLine(line);
     if (ing && ing.amount != null) { ingredients.push(ing); lastKind = 'ing'; continue; }
     // 4) Imperative cooking verb up front is an instruction ("Blend until smooth").
@@ -228,5 +281,6 @@ export function parseRecipeText(raw) {
     // 8) Anything else is caption chatter — dropped, not misfiled.
   }
 
+  if (!title && firstGroupLabel) title = firstGroupLabel;
   return { onlyUrl: false, title, servings, ingredients, steps: normalizeSteps(steps), sourceUrl };
 }
