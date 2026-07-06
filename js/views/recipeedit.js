@@ -103,7 +103,7 @@ export function openRecipePaste({ onSaved }) {
   });
 }
 
-export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted = false, extractedFrom = null } = {}) {
+export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted = false, extractedFrom = null, bannerText = null } = {}) {
   const existing = !!initial.id;
   const ingRows = [];
 
@@ -147,7 +147,7 @@ export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted =
     el('div', { class: 'o-list' },
       extracted
         ? el('div', { class: 'notfound-note' },
-            `Extracted from ${extractedFrom || 'your pasted text'} — check everything below before saving.`)
+            bannerText || `Extracted from ${extractedFrom || 'your pasted text'} — check everything below before saving.`)
         : null,
       el('div', { class: 'form-label' }, 'Title'),
       titleInput,

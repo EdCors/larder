@@ -9,6 +9,9 @@ import { analyzeRecipe, preferenceScore, urgencyScore, cravingScore } from '../r
 import { recipeCost, fmtMoney } from '../cost.js';
 import { openRecipeEditor, openRecipePaste } from './recipeedit.js';
 import { openCookMode } from './cookmode.js';
+import { openGenerateSheet } from './generate.js';
+
+const SPARKLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 15l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.9L19 15z"/></svg>';
 
 const BOOK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>';
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>';
@@ -164,8 +167,10 @@ function openAddChooser() {
     build(body, api) {
       body.append(
         el('div', { class: 'addopts', style: 'flex-direction:column' },
+          el('button', { class: 'btn-scan', onclick: () => { api.close(); openGenerateSheet({ onSaved: refresh }); } },
+            el('span', { html: SPARKLE_ICON }), 'Generate with AI'),
           el('button', { class: 'btn-scan', onclick: () => { api.close(); openRecipePaste({ onSaved: refresh }); } },
-            el('span', { html: CLIPBOARD_ICON }), 'Paste text from Instagram / web'),
+            el('span', { html: CLIPBOARD_ICON }), 'Paste text or a link'),
           el('button', { class: 'btn-scan', onclick: () => { api.close(); openRecipeEditor({}, { onSaved: refresh }); } },
             el('span', { html: PENCIL_ICON }), 'Write it myself')
         )
@@ -192,10 +197,15 @@ function renderList() {
 
   const ranked = rank(recipes);
   if (!ranked.length) {
+    const q = query.trim();
     listEl.append(
       el('div', { class: 'empty' },
         el('h3', {}, 'No matches'),
-        el('p', {}, `Nothing matches “${query.trim()}” — try different words, or add a recipe like that.`)
+        el('p', {}, `Nothing matches “${q}” — try different words, or have one made for you.`),
+        el('button', {
+          class: 'btn btn-primary',
+          onclick: () => openGenerateSheet({ craving: q, onSaved: refresh }),
+        }, `Generate “${q}” with AI`)
       )
     );
     return;
@@ -222,7 +232,7 @@ function renderList() {
 
 /* ── Detail ── */
 
-async function openRecipeDetail(id) {
+export async function openRecipeDetail(id) {
   const recipe = await dbGet('recipes', id);
   if (!recipe) return;
   const freshPantry = (await dbAll('pantry')).filter((p) => p.quantity.amount > 0);
@@ -270,6 +280,7 @@ async function openRecipeDetail(id) {
     if (cost.perServe != null) meta.push(`~${fmtMoney(cost.perServe)}/serve${cost.known < cost.count ? ` (${cost.known} of ${cost.count} priced)` : ''}`);
     if (recipe.source === 'paste') meta.push('from paste');
     if (recipe.source === 'link') meta.push('from link');
+    if (recipe.source === 'ai') meta.push('AI-generated');
 
     const ingCard = el('div', { class: 'card', style: 'margin-top:8px' });
     for (const ing of recipe.ingredients) {

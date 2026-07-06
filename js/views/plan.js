@@ -9,6 +9,7 @@ import { analyzeRecipe, preferenceScore } from '../recommend.js';
 import { recipeCost, unitPrice, fmtMoney } from '../cost.js';
 import { buildFoodSources, recipeNutrition, scaleServes, sumNutrients } from '../nutrition.js';
 import { openShoppingReview, renderShopping } from './shopping.js';
+import { openBudgetDinner } from './generate.js';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SEGS = [
@@ -165,7 +166,11 @@ async function renderWeek() {
     el('button', {
       class: 'btn-scan', style: 'margin-top:14px',
       onclick: () => buildShoppingProposal(dates),
-    }, 'Build shopping list for this week')
+    }, 'Build shopping list for this week'),
+    el('button', {
+      class: 'btn-scan', style: 'margin-top:10px',
+      onclick: () => openBudgetDinner({ onSaved: render }),
+    }, 'Dinner on a budget')
   );
 }
 
