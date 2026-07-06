@@ -5,11 +5,15 @@ import { dbAll, dbPut, dbDel, uuid, getSetting, setSetting } from '../db.js';
 import { el, openSheet, fmtDateShort } from '../ui.js';
 import { convertIngredient, unitById } from '../units.js';
 import { matchPantry } from '../match.js';
-import { analyzeRecipe, preferenceScore } from '../recommend.js';
+import { analyzeRecipe, preferenceScore, nutritionSummary } from '../recommend.js';
 import { recipeCost, unitPrice, fmtMoney } from '../cost.js';
 import { buildFoodSources, recipeNutrition, scaleServes, sumNutrients } from '../nutrition.js';
+import { loadPrefs, recordSignal } from '../prefs.js';
 import { openShoppingReview, renderShopping } from './shopping.js';
-import { openBudgetDinner } from './generate.js';
+import { openBudgetDinner, openGenerateSheet } from './generate.js';
+import { openWeekPlanner } from './weekplan.js';
+
+const LOCK_CLOSED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg>';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SEGS = [
@@ -69,8 +73,9 @@ async function render() {
 /* ── Week view ── */
 
 async function renderWeek() {
-  const [plans, recipes, pantryAll, budget, cache] = await Promise.all([
+  const [plans, recipes, pantryAll, budget, cache, targets, prefs] = await Promise.all([
     dbAll('mealPlans'), dbAll('recipes'), dbAll('pantry'), getSetting('weeklyBudget'), dbAll('barcodeCache'),
+    getSetting('dinnerTargets'), loadPrefs(),
   ]);
   const pantry = pantryAll.filter((p) => p.quantity.amount > 0);
   const dates = weekDates(weekOffset);
@@ -91,16 +96,21 @@ async function renderWeek() {
     ? `est ${fmtMoney(weekTotal)}${budget != null ? ` of ${fmtMoney(budget)}` : ''}${unknowns ? ` · ${unknowns} unpriced` : ''}`
     : '');
 
-  // Budget card
+  // Budget & targets card
   const pct = budget != null && budget > 0 ? Math.min(100, (weekTotal / budget) * 100) : 0;
   const barCls = budget != null && weekTotal > budget ? ' over' : (pct > 85 ? ' near' : '');
+  const targetBits = [];
+  if (targets?.kcal) targetBits.push(`≈${targets.kcal} kcal`);
+  if (targets?.protein) targetBits.push(`≈${targets.protein}g protein`);
   bodyEl.append(
-    el('button', { class: 'budget-card', onclick: () => openBudgetSheet(budget) },
+    el('button', { class: 'budget-card', onclick: () => openPlanSettings(budget, targets) },
       el('div', { class: 'budget-row' },
         el('span', { class: 'budget-label' }, 'Weekly dinner budget'),
         el('span', { class: 'budget-value' }, budget != null ? `${fmtMoney(weekTotal)} / ${fmtMoney(budget)}` : 'Set a budget')
       ),
-      budget != null ? el('div', { class: 'budget-bar' }, el('div', { class: `budget-bar-fill${barCls}`, style: `width:${pct}%` })) : null
+      budget != null ? el('div', { class: 'budget-bar' }, el('div', { class: `budget-bar-fill${barCls}`, style: `width:${pct}%` })) : null,
+      el('div', { class: 'insight-sub' },
+        targetBits.length ? `Dinner target ${targetBits.join(' · ')} per serve` : 'Tap to set a rough dinner target (kcal & protein)')
     )
   );
 
@@ -143,20 +153,40 @@ async function renderWeek() {
     if (recipe) {
       const a = analyzeRecipe(recipe, pantry);
       const c = costs.get(recipe.id);
+      const n = recipeNutrition(recipe, foodSources);
+      const summary = nutritionSummary(n, targets);
       const meta = [`have ${a.have}/${a.total}`];
+      if (n.perServe) meta.push(summary.text);
       if (c.perServe != null) meta.push(`~${fmtMoney(c.perServe)}/serve`);
+      const flag = summary.flag;
       main = el('div', { class: 'row-main' },
         el('div', { class: 'row-name' }, recipe.title),
-        el('div', { class: 'row-meta' }, meta.join(' · ')));
+        el('div', { class: 'row-meta' }, meta.join(' · '),
+          flag ? el('span', { class: `chip-exp ${flag.cls}`, style: 'margin-left:6px' }, flag.label) : null));
     } else {
       main = el('div', { class: 'row-main' }, el('div', { class: 'day-empty' }, 'Add dinner'));
     }
     card.append(
-      el('button', { class: 'row', onclick: () => openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes }) },
+      el('div', {
+        class: 'row', role: 'button', tabindex: '0', style: 'cursor:pointer',
+        onclick: () => openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes, prefs, recipe }),
+      },
         el('div', { class: `day-label${date === today ? ' today' : ''}` },
           el('div', { class: 'day-name' }, DAY_NAMES[i]),
           el('div', { class: 'day-num' }, String(parseInt(date.slice(8), 10)))),
-        main
+        main,
+        entry ? el('button', {
+          class: `icon-btn plan-lock${entry.locked ? ' on' : ''}`,
+          'aria-label': entry.locked ? 'Unlock dinner' : 'Lock dinner',
+          html: LOCK_CLOSED,
+          onclick: async (e) => {
+            e.stopPropagation();
+            entry.locked = !entry.locked;
+            entry.updatedAt = Date.now();
+            await dbPut('mealPlans', entry);
+            render();
+          },
+        }) : null
       )
     );
   });
@@ -165,6 +195,10 @@ async function renderWeek() {
   bodyEl.append(
     el('button', {
       class: 'btn-scan', style: 'margin-top:14px',
+      onclick: () => openWeekPlanner(dates, { onDone: render }),
+    }, '✨ Plan my week'),
+    el('button', {
+      class: 'btn-scan', style: 'margin-top:10px',
       onclick: () => buildShoppingProposal(dates),
     }, 'Build shopping list for this week'),
     el('button', {
@@ -174,46 +208,81 @@ async function renderWeek() {
   );
 }
 
-function openBudgetSheet(current) {
+function openPlanSettings(currentBudget, currentTargets) {
   openSheet({
-    title: 'Weekly dinner budget',
+    title: 'Plan settings',
     build(body, api) {
-      const input = el('input', { class: 'field-input', type: 'text', inputmode: 'decimal', placeholder: 'e.g. 70' });
-      input.value = current != null ? String(current) : '';
+      const budgetInput = el('input', { class: 'field-input', type: 'text', inputmode: 'decimal', placeholder: 'e.g. 70' });
+      budgetInput.value = currentBudget != null ? String(currentBudget) : '';
+      const kcalInput = el('input', { type: 'text', inputmode: 'numeric', placeholder: 'e.g. 650' });
+      kcalInput.value = currentTargets?.kcal != null ? String(currentTargets.kcal) : '';
+      const proteinInput = el('input', { type: 'text', inputmode: 'numeric', placeholder: 'e.g. 35' });
+      proteinInput.value = currentTargets?.protein != null ? String(currentTargets.protein) : '';
       body.append(
         el('div', { class: 'form-label' }, 'Budget for the week’s dinners ($)'),
-        input,
+        budgetInput,
+        el('div', { class: 'form-label' }, 'Dinner target — a rough guide, not a rule'),
+        el('div', { class: 'nutri-grid' },
+          el('div', { class: 'nutri-cell' }, el('label', {}, 'Energy (kcal/serve)'), kcalInput),
+          el('div', { class: 'nutri-cell' }, el('label', {}, 'Protein (g/serve)'), proteinInput)
+        ),
+        el('div', { class: 'form-hint' }, 'Planned dinners aim to land roughly around these and get flagged when well over or under.'),
         el('div', { class: 'sheet-actions' },
           el('button', {
             class: 'btn btn-primary',
             onclick: async () => {
-              const n = parseFloat(String(input.value).replace(',', '.').replace('$', ''));
-              await setSetting('weeklyBudget', Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null);
+              const num = (i) => { const n = parseFloat(String(i.value).replace(',', '.').replace('$', '')); return Number.isFinite(n) && n > 0 ? Math.round(n) : null; };
+              const b = parseFloat(String(budgetInput.value).replace(',', '.').replace('$', ''));
+              await setSetting('weeklyBudget', Number.isFinite(b) && b > 0 ? Math.round(b * 100) / 100 : null);
+              const t = { kcal: num(kcalInput), protein: num(proteinInput) };
+              await setSetting('dinnerTargets', t.kcal || t.protein ? t : null);
               api.close();
               render();
             },
           }, 'Save')
         )
       );
-      setTimeout(() => input.focus(), 120);
+      setTimeout(() => budgetInput.focus(), 120);
     },
   });
 }
 
 /* ── Recipe picker for a day ── */
 
-function openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes }) {
+function openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes, prefs, recipe: currentRecipe }) {
   openSheet({
     title: `Dinner · ${DAY_NAMES[(new Date(date).getDay() + 6) % 7]} ${fmtDateShort(date)}`,
     build(body, api) {
       if (entry) {
         body.append(el('button', {
           class: 'btn btn-danger', style: 'margin:6px 0 4px; width:100%',
-          onclick: async () => { await dbDel('mealPlans', entry.id); api.close(); render(); },
+          onclick: async () => {
+            if (currentRecipe) recordSignal(currentRecipe, 'dismiss');
+            await dbDel('mealPlans', entry.id);
+            api.close();
+            render();
+          },
         }, 'Remove this dinner'));
       }
+      body.append(el('button', {
+        class: 'btn-scan', style: 'margin:6px 0 4px',
+        onclick: () => {
+          api.close();
+          openGenerateSheet({
+            onSaved: async (saved) => {
+              if (entry && currentRecipe) recordSignal(currentRecipe, 'dismiss');
+              await dbPut('mealPlans', {
+                id: entry?.id || uuid(), date, recipeId: saved.id,
+                locked: entry?.locked || false,
+                addedAt: entry?.addedAt || Date.now(), updatedAt: Date.now(),
+              });
+              render();
+            },
+          });
+        },
+      }, '✨ Generate new for this night'));
       if (!recipes.length) {
-        body.append(el('div', { class: 'form-hint' }, 'No recipes yet — add some in the Recipes tab first.'));
+        body.append(el('div', { class: 'form-hint' }, 'No saved recipes yet — generate one above, or add some in the Recipes tab.'));
         return;
       }
 
@@ -222,7 +291,7 @@ function openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes }) 
 
       const ranked = [...recipes].sort((a, b) =>
         analyzeRecipe(a, pantry).missing.length - analyzeRecipe(b, pantry).missing.length
-        || preferenceScore(b) - preferenceScore(a)
+        || preferenceScore(b, prefs) - preferenceScore(a, prefs)
         || a.titleLower.localeCompare(b.titleLower));
 
       body.append(el('div', { class: 'form-label' },
@@ -239,9 +308,10 @@ function openPicker(date, entry, { budget, weekTotal, costs, pantry, recipes }) 
           el('button', {
             class: 'row',
             onclick: async () => {
+              if (entry && currentRecipe && currentRecipe.id !== r.id) recordSignal(currentRecipe, 'dismiss');
               const record = entry
                 ? { ...entry, recipeId: r.id, updatedAt: Date.now() }
-                : { id: uuid(), date, recipeId: r.id, addedAt: Date.now(), updatedAt: Date.now() };
+                : { id: uuid(), date, recipeId: r.id, locked: false, addedAt: Date.now(), updatedAt: Date.now() };
               await dbPut('mealPlans', record);
               api.close();
               render();

@@ -10,6 +10,7 @@ import { recipeCost, fmtMoney } from '../cost.js';
 import { openRecipeEditor, openRecipePaste } from './recipeedit.js';
 import { openCookMode } from './cookmode.js';
 import { openGenerateSheet } from './generate.js';
+import { loadPrefs, recordSignal } from '../prefs.js';
 
 const SPARKLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 15l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.9L19 15z"/></svg>';
 
@@ -29,6 +30,7 @@ const MODES = [
 
 let recipes = [];
 let pantry = [];
+let prefs = null;
 let analyses = new Map(); // recipe.id → analyzeRecipe result
 let query = '';
 let mode = localStorage.getItem('larder.recipes.mode') || 'pantry';
@@ -52,7 +54,7 @@ export const recipesView = {
 };
 
 async function refresh() {
-  [recipes, pantry] = await Promise.all([dbAll('recipes'), dbAll('pantry')]);
+  [recipes, pantry, prefs] = await Promise.all([dbAll('recipes'), dbAll('pantry'), loadPrefs()]);
   pantry = pantry.filter((p) => p.quantity.amount > 0);
   analyses = new Map(recipes.map((r) => [r.id, analyzeRecipe(r, pantry)]));
   if (ctxRef) {
@@ -111,14 +113,14 @@ function rank(list) {
     const scored = list
       .map((r) => ({ r, s: cravingScore(r, q) }))
       .filter((x) => x.s > 0);
-    scored.sort((a, b) => b.s - a.s || preferenceScore(b.r) - preferenceScore(a.r) || byTitle(a.r, b.r));
+    scored.sort((a, b) => b.s - a.s || preferenceScore(b.r, prefs) - preferenceScore(a.r, prefs) || byTitle(a.r, b.r));
     return scored.map((x) => x.r);
   }
   const sorted = [...list];
   if (mode === 'pantry') {
     sorted.sort((a, b) =>
       analyses.get(a.id).missing.length - analyses.get(b.id).missing.length
-      || preferenceScore(b) - preferenceScore(a)
+      || preferenceScore(b, prefs) - preferenceScore(a, prefs)
       || byTitle(a, b));
   } else if (mode === 'useup') {
     sorted.sort((a, b) =>
@@ -242,6 +244,7 @@ export async function openRecipeDetail(id) {
     recipe.liked = !recipe.liked;
     recipe.updatedAt = Date.now();
     await dbPut('recipes', recipe);
+    recordSignal(recipe, recipe.liked ? 'like' : 'unlike');
     heartBtn.classList.toggle('on', recipe.liked);
     heartBtn.innerHTML = recipe.liked ? HEART_FILL : HEART;
     refresh();

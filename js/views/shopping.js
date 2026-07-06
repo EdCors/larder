@@ -120,8 +120,7 @@ export async function renderShopping(container, { onChanged, setSubtitle }) {
     const meta = [];
     if (item.quantity) meta.push(formatQty(item.quantity.amount, item.quantity.unit));
     if (item.estCost != null) meta.push(`est ${fmtMoney(item.estCost)}`);
-    if (item.source === 'staple') meta.push('staple');
-    if (item.source === 'plan' && item.reason) meta.push(item.reason);
+    if (item.reason) meta.push(item.reason);
     return el('div', { class: `o-row shop-row${item.status === 'done' ? ' shop-done' : ''}` },
       el('button', {
         class: `o-check${item.status === 'done' ? ' on' : ''}`, html: CHECK,
@@ -134,7 +133,8 @@ export async function renderShopping(container, { onChanged, setSubtitle }) {
         },
       }),
       el('div', { class: 'o-main' },
-        el('div', { class: 'o-name' }, item.name),
+        el('div', { class: 'o-name' }, item.name,
+          item.source === 'staple' ? el('span', { class: 'src-tag' }, 'staple') : null),
         meta.length ? el('div', { class: 'o-meta' }, meta.join(' · ')) : null
       ),
       el('button', {

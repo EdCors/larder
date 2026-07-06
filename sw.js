@@ -1,5 +1,5 @@
 /* Muffin service worker — app-shell caching for offline use. */
-const VERSION = 'v8.3.1';
+const VERSION = 'v8.4.0';
 const CACHE = `larder-${VERSION}`;
 
 const ASSETS = [
@@ -14,6 +14,8 @@ const ASSETS = [
   'js/itemform.js',
   'js/backup.js',
   'js/ai.js',
+  'js/prefs.js',
+  'js/staples.js',
   'js/off.js',
   'js/cost.js',
   'js/match.js',
@@ -36,6 +38,7 @@ const ASSETS = [
   'js/views/track.js',
   'js/views/insights.js',
   'js/views/generate.js',
+  'js/views/weekplan.js',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',

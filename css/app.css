@@ -521,6 +521,11 @@ textarea.field-input { height: auto; padding: 12px 14px; resize: none; line-heig
 .menu-row[disabled] { opacity: 0.45; pointer-events: none; }
 .confirm-msg { font-size: 15px; line-height: 1.55; color: var(--ink-2); margin-top: 8px; }
 
+/* ── Week planner ── */
+.plan-lock { width: 34px; height: 34px; flex: none; }
+.plan-lock svg { width: 17px; height: 17px; }
+.plan-lock.on { color: var(--green); background: var(--green-soft); }
+
 /* ── Insights ── */
 .insight-card {
   background: var(--surface); border-radius: var(--radius); padding: 14px 16px;

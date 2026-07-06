@@ -7,6 +7,7 @@ import { el, openSheet, toast, todayISO, fmtDateShort, daysUntil, debounce } fro
 import { UNITS, formatQty, unitById } from '../units.js';
 import { unitPrice, fmtMoney } from '../cost.js';
 import { switchTab } from '../app.js';
+import { checkStaples } from '../staples.js';
 
 const REASONS = ['Expired', 'Went off', 'Cooked too much', 'Didn’t like it', 'Other'];
 const BIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13.5h9l1-13.5M10 11v6M14 11v6"/></svg>';
@@ -298,6 +299,7 @@ export function openWasteSheet({ item = null, prefillName = '', onDone }) {
               api.close();
               toast(`Logged ${name}`);
               onDone();
+              if (item) setTimeout(() => checkStaples(), 4500);
             },
           }, 'Log waste')
         )

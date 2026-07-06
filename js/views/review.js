@@ -6,6 +6,7 @@ import { dbAll, dbPut, uuid } from '../db.js';
 import { buildItemForm } from '../itemform.js';
 import { lookupBarcode, rememberManualProduct, validEan } from '../off.js';
 import { convert, formatQty } from '../units.js';
+import { checkStaples } from '../staples.js';
 
 /* Look a barcode up and open the review sheet. The sheet morphs from a
    loading state into found / not-found / network-error states. */
@@ -175,6 +176,7 @@ async function renderReview(body, api, barcode, res, { onDone, onScanNext }) {
 
     api.close();
     onDone();
+    checkStaples({ silent: true }); // restocking clears staple low-flags
     if (scanNext) onScanNext();
   }
 

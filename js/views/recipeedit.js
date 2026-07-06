@@ -6,6 +6,7 @@ import { dbPut, dbDel, uuid } from '../db.js';
 import { INGREDIENT_UNITS } from '../units.js';
 import { parseRecipeText } from '../recipeparse.js';
 import { importFromUrl } from '../recipeimport.js';
+import { recordSignal } from '../prefs.js';
 
 const X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
@@ -224,6 +225,7 @@ export function openRecipeEditor(initial = {}, { onSaved, onDeleted, extracted =
       updatedAt: Date.now(),
     };
     await dbPut('recipes', recipe);
+    if (!existing) recordSignal(recipe, 'save');
     close();
     toast(existing ? 'Recipe updated' : `Saved ${recipe.title}`);
     if (onSaved) onSaved(recipe);

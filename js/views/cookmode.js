@@ -7,6 +7,8 @@ import { dbAll, dbGet, dbPut } from '../db.js';
 import { matchPantry } from '../match.js';
 import { convertIngredient, formatQty, unitById, ingredientUnitLabel } from '../units.js';
 import { recipeCost } from '../cost.js';
+import { recordSignal } from '../prefs.js';
+import { checkStaples } from '../staples.js';
 
 const X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
@@ -170,11 +172,14 @@ export function openDeductReview(recipe, { onCooked, closeCook }) {
           rec.costHistory = [...(rec.costHistory || []), { at: Date.now(), perServe: cost.perServe }];
         }
         await dbPut('recipes', rec);
+        recordSignal(rec, 'cook');
         api.close();
         if (closeCook) closeCook();
         const emptyNote = emptied.length ? ` · ${emptied.join(', ')} now empty` : '';
         toast(applyDeductions ? `Cooked! Deducted from ${deducted} item${deducted === 1 ? '' : 's'}${emptyNote}` : 'Cooked! Pantry left unchanged');
         if (onCooked) onCooked();
+        if (applyDeductions) setTimeout(() => checkStaples(), 4500); // after the cooked toast
+
       }
 
       body.append(

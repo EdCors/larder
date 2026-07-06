@@ -8,6 +8,7 @@ import { parseOrder } from '../orderparse.js';
 import { attachHistoryNutrition, findMergeTargets } from '../match.js';
 import { searchProducts } from '../off.js';
 import { convert, formatQty } from '../units.js';
+import { checkStaples } from '../staples.js';
 
 const CHEVRON_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -166,6 +167,7 @@ export function openOrderReview(items, { onDone }) {
     toast(`Added ${added} item${added === 1 ? '' : 's'}${merged ? ` · topped up ${merged}` : ''}`);
     close();
     onDone();
+    checkStaples({ silent: true }); // restocked staples clear their low flag
   });
 
   document.body.append(overlay);

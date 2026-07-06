@@ -9,6 +9,9 @@ import { openScanner } from '../scanner.js';
 import { startBarcodeReview, openManualBarcode } from './review.js';
 import { openOrderPaste } from './orderreview.js';
 import { openWasteSheet } from './insights.js';
+import { checkStaples, stapleState, addStapleToList } from '../staples.js';
+
+const CART_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="17.5" cy="20" r="1.4"/><path d="M3 4h2.2l2.6 11.5h10.4L21 8H6.2"/></svg>';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>';
 const X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -17,9 +20,10 @@ const BARCODE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const CLIPBOARD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="17" rx="2.5"/><path d="M9 4.5a3 3 0 0 1 6 0M9 11h6M9 15h4"/></svg>';
 
 const SORTS = [
-  { id: 'name',   label: 'Name' },
-  { id: 'expiry', label: 'Expiry' },
-  { id: 'recent', label: 'Recent' },
+  { id: 'name',    label: 'Name' },
+  { id: 'expiry',  label: 'Expiry' },
+  { id: 'recent',  label: 'Recent' },
+  { id: 'staples', label: 'Staples' },
 ];
 
 let items = [];
@@ -262,6 +266,10 @@ function sortItems(list) {
     });
   }
   if (sort === 'recent') return list.sort((a, b) => b.addedAt - a.addedAt || byName(a, b));
+  if (sort === 'staples') {
+    const rank = { out: 0, low: 1, ok: 2 };
+    return list.sort((a, b) => rank[stapleState(a)] - rank[stapleState(b)] || byName(a, b));
+  }
   return list.sort(byName);
 }
 
@@ -282,7 +290,8 @@ function renderList() {
   }
 
   const q = query.trim().toLowerCase();
-  const visible = sortItems(items.filter((item) => {
+  const pool = sort === 'staples' ? items.filter((i) => i.isStaple) : items;
+  const visible = sortItems(pool.filter((item) => {
     if (!q) return true;
     const cat = item.category ? (catById(item.category)?.label || '') : '';
     return item.nameLower.includes(q)
@@ -294,8 +303,10 @@ function renderList() {
   if (!visible.length) {
     listEl.append(
       el('div', { class: 'empty' },
-        el('h3', {}, 'No matches'),
-        el('p', {}, `Nothing in your pantry matches “${query.trim()}”.`)
+        el('h3', {}, sort === 'staples' && !q ? 'No staples yet' : 'No matches'),
+        el('p', {}, sort === 'staples' && !q
+          ? 'Mark items you always keep stocked (milk, eggs, oil…) as staples when adding or editing them — under “Add details”, with a top-up level. Muffin flags them when they run low and adds them to your shopping list.'
+          : `Nothing in your pantry matches “${query.trim()}”.`)
       )
     );
     return;
@@ -310,28 +321,42 @@ function renderList() {
 
 function buildRow(item) {
   const meta = [];
-  if (item.brand) meta.push(item.brand);
-  if (item.category) {
-    const cat = catById(item.category);
-    if (cat) {
-      if (meta.length) meta.push('·');
-      meta.push(el('span', { class: 'cat-dot', style: `background:${cat.color}` }));
-      meta.push(cat.label);
+  const state = stapleState(item);
+  if (sort === 'staples' && state) {
+    meta.push(`top up below ${formatQty(item.lowAt ?? 0, item.quantity.unit)}`);
+  } else {
+    if (item.brand) meta.push(item.brand);
+    if (item.category) {
+      const cat = catById(item.category);
+      if (cat) {
+        if (meta.length) meta.push('·');
+        meta.push(el('span', { class: 'cat-dot', style: `background:${cat.color}` }));
+        meta.push(cat.label);
+      }
     }
   }
 
   const side = [el('div', { class: 'row-qty' }, formatQty(item.quantity.amount, item.quantity.unit))];
+  if (state === 'out') side.push(el('span', { class: 'chip-exp bad' }, 'Out'));
+  else if (state === 'low') side.push(el('span', { class: 'chip-exp warn' }, 'Low'));
   if (item.expiryDate) {
     const info = expiryInfo(item.expiryDate);
     side.push(el('span', { class: `chip-exp ${info.cls}` }, info.label));
   }
 
-  return el('button', { class: 'row', onclick: () => openEditSheet(item) },
+  return el('div', { class: 'row', role: 'button', tabindex: '0', style: 'cursor:pointer', onclick: () => openEditSheet(item) },
     el('div', { class: 'row-main' },
-      el('div', { class: 'row-name' }, item.name),
+      el('div', { class: 'row-name' }, item.name, state ? el('span', { class: 'src-tag' }, 'staple') : null),
       meta.length ? el('div', { class: 'row-meta' }, ...meta) : null
     ),
-    el('div', { class: 'row-side' }, ...side)
+    el('div', { class: 'row-side' }, ...side),
+    sort === 'staples'
+      ? el('button', {
+          class: 'icon-btn', style: 'width:36px;height:36px', 'aria-label': `Add ${item.name} to shopping list`,
+          html: CART_ICON,
+          onclick: (e) => { e.stopPropagation(); addStapleToList(item); },
+        })
+      : null
   );
 }
 
@@ -462,6 +487,7 @@ function openEditSheet(item) {
               await dbPut('pantry', updated);
               api.close();
               await refresh();
+              await checkStaples();
             },
           }, 'Save')
         ),

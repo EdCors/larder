@@ -53,12 +53,27 @@ Rules:
 - The recipe must be genuinely cookable: sensible technique, order and timing.
 - Respect the cook's taste signals (liked and previously cooked recipes) and any craving they describe.`;
 
-function buildUserPrompt({ pantry, likedTitles, cookedTitles, craving, serves, budget }) {
+function buildUserPrompt({ pantry, likedTitles, cookedTitles, craving, serves, budget, targets, styleHints, avoidTitles }) {
   const lines = [];
   lines.push(`Craving: ${craving ? `"${craving}"` : "cook's choice — pick something appealing for dinner"}`);
   lines.push(`Serves: ${serves}`);
   if (budget != null) {
     lines.push(`Budget: the ingredients NOT already in the pantry must cost under $${budget} AUD in total at a typical Australian supermarket (estimate prices conservatively).`);
+  }
+  if (targets && (targets.kcal || targets.protein)) {
+    const parts = [];
+    if (targets.kcal) parts.push(`~${targets.kcal} kcal`);
+    if (targets.protein) parts.push(`~${targets.protein} g protein`);
+    lines.push(`Nutrition guide (rough, not exact): aim to land somewhere around ${parts.join(' and ')} per serve.`);
+  }
+  if (styleHints?.liked?.length) {
+    lines.push(`The cook gravitates toward: ${styleHints.liked.join(', ')}.`);
+  }
+  if (styleHints?.avoided?.length) {
+    lines.push(`The cook tends to avoid: ${styleHints.avoided.join(', ')}.`);
+  }
+  if (avoidTitles?.length) {
+    lines.push(`Make this clearly different from these dinners already planned this week: ${avoidTitles.join('; ')}.`);
   }
   lines.push('', 'PANTRY (quantities are what is available):');
   for (const item of pantry.slice(0, 60)) {
@@ -101,7 +116,7 @@ function mapGenerated(raw) {
 }
 
 /* Returns { status:'ok', recipe } or { status:'nokey'|'auth'|'ratelimit'|'overloaded'|'refusal'|'error', message } */
-export async function generateRecipe({ craving = '', serves = 2, budget = null } = {}) {
+export async function generateRecipe({ craving = '', serves = 2, budget = null, targets = null, styleHints = null, avoidTitles = null } = {}) {
   const key = await getApiKey();
   if (!key) return { status: 'nokey' };
 
@@ -134,7 +149,7 @@ export async function generateRecipe({ craving = '', serves = 2, budget = null }
         system: SYSTEM_PROMPT,
         messages: [{
           role: 'user',
-          content: buildUserPrompt({ pantry, likedTitles, cookedTitles, craving, serves, budget }),
+          content: buildUserPrompt({ pantry, likedTitles, cookedTitles, craving, serves, budget, targets, styleHints, avoidTitles }),
         }],
       }),
     });
