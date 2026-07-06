@@ -17,7 +17,7 @@ const ICONS = {
 };
 
 const TABS = [
-  { id: 'pantry',   label: 'Pantry',   icon: ICONS.jar,      title: 'Larder',    view: pantryView },
+  { id: 'pantry',   label: 'Pantry',   icon: ICONS.jar,      title: 'Muffin',    view: pantryView },
   { id: 'recipes',  label: 'Recipes',  icon: ICONS.book,     title: 'Recipes',   view: recipesView },
   { id: 'plan',     label: 'Plan',     icon: ICONS.calendar, title: 'Meal plan', view: planView },
   { id: 'track',    label: 'Track',    icon: ICONS.pulse,    title: 'Nutrition', view: trackView },
@@ -100,7 +100,7 @@ async function boot() {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (hadController) {
-        toast('Larder updated — reopen the app to finish', { duration: 8000 });
+        toast('Muffin updated — reopen the app to finish', { duration: 8000 });
       }
     });
     navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW registration failed', err));

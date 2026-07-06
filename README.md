@@ -1,4 +1,4 @@
-# Larder
+# Muffin
 
 A smart pantry and meal-planning tracker, built as an installable iOS PWA.
 No build step — plain ES modules, IndexedDB for storage, a service worker

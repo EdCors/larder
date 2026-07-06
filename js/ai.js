@@ -41,7 +41,7 @@ const RECIPE_SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = `You create practical dinner recipes for an Australian home cook using the Larder pantry app.
+const SYSTEM_PROMPT = `You create practical dinner recipes for an Australian home cook using the Muffin pantry app.
 
 Rules:
 - Strongly prefer ingredients from the provided pantry list; keep the number of ingredients that must be bought to a minimum, and mark each ingredient with from_pantry accordingly.

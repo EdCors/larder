@@ -108,7 +108,7 @@ function openPantryMenu() {
           menuRow({
             icon: EXPORT_ICON,
             title: 'Export backup',
-            sub: 'Save a file with all your Larder data',
+            sub: 'Save a file with all your Muffin data',
             onclick: async () => {
               api.close();
               const result = await exportBackup();
@@ -184,14 +184,14 @@ async function handleImportFile(file) {
     return;
   }
   if (!validateBackup(backup)) {
-    toast('That doesn’t look like a Larder backup file');
+    toast('That doesn’t look like a Muffin backup file');
     return;
   }
   const s = summarizeBackup(backup);
   const when = s.exportedAt ? new Date(s.exportedAt).toLocaleDateString() : 'unknown date';
   confirmSheet({
     title: 'Restore backup',
-    message: `Backup from ${when}: ${s.pantry} pantry items, ${s.recipes} recipes, ${s.mealPlans} planned meals, ${s.shopping} shopping items, ${s.nutritionLogs} nutrition entries, ${s.wasteLog} waste entries. This replaces ALL current Larder data on this device.`,
+    message: `Backup from ${when}: ${s.pantry} pantry items, ${s.recipes} recipes, ${s.mealPlans} planned meals, ${s.shopping} shopping items, ${s.nutritionLogs} nutrition entries, ${s.wasteLog} waste entries. This replaces ALL current Muffin data on this device.`,
     confirmLabel: 'Replace & restore',
     onConfirm: async () => {
       await applyBackup(backup);

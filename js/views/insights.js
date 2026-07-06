@@ -84,7 +84,7 @@ async function render() {
       el('div', { class: 'empty' },
         el('div', { class: 'empty-icon', html: BIN_ICON }),
         el('h3', {}, 'Nothing logged yet'),
-        el('p', {}, 'When you throw food out, log it here. Over time Larder shows what you consistently over-buy or waste.'),
+        el('p', {}, 'When you throw food out, log it here. Over time Muffin shows what you consistently over-buy or waste.'),
         el('button', { class: 'btn btn-primary', onclick: () => openWastePicker({ onDone: render }) }, 'Log waste')
       )
     );

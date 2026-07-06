@@ -1,5 +1,5 @@
-/* Larder service worker — app-shell caching for offline use. */
-const VERSION = 'v8.3.0';
+/* Muffin service worker — app-shell caching for offline use. */
+const VERSION = 'v8.3.1';
 const CACHE = `larder-${VERSION}`;
 
 const ASSETS = [

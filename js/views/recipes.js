@@ -188,7 +188,7 @@ function renderList() {
       el('div', { class: 'empty' },
         el('div', { class: 'empty-icon', html: BOOK_ICON }),
         el('h3', {}, 'No recipes yet'),
-        el('p', {}, 'Write one in, or paste the text of a recipe from Instagram or the web and Larder will structure it for you.'),
+        el('p', {}, 'Write one in, or paste the text of a recipe from Instagram or the web and Muffin will structure it for you.'),
         el('button', { class: 'btn btn-primary', onclick: openAddChooser }, 'Add a recipe')
       )
     );

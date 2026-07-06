@@ -92,7 +92,7 @@ async function renderReview(body, api, barcode, res, { onDone, onScanNext }) {
 
   if (!found) {
     body.append(el('div', { class: 'notfound-note' },
-      'This barcode isn’t in Open Food Facts. Fill in the details once — Larder remembers them for next time.'));
+      'This barcode isn’t in Open Food Facts. Fill in the details once — Muffin remembers them for next time.'));
   }
 
   const form = buildItemForm({

@@ -176,7 +176,7 @@ export function openBudgetDinner({ onSaved } = {}) {
           }
           results.append(card);
           results.append(el('div', { class: 'form-hint' },
-            'Larder can’t price items you haven’t bought yet, so saved recipes are ranked by how little needs buying.'));
+            'Muffin can’t price items you haven’t bought yet, so saved recipes are ranked by how little needs buying.'));
         } else {
           results.append(el('div', { class: 'form-hint' }, 'No saved recipes yet — generate one below.'));
         }

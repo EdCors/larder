@@ -41,12 +41,12 @@ export async function applyBackup(obj) {
 export async function exportBackup() {
   const backup = await collectBackup();
   const json = JSON.stringify(backup, null, 1);
-  const name = `larder-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `muffin-backup-${new Date().toISOString().slice(0, 10)}.json`;
   const file = new File([json], name, { type: 'application/json' });
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: 'Larder backup' });
+      await navigator.share({ files: [file], title: 'Muffin backup' });
       return 'shared';
     } catch (err) {
       if (err && err.name === 'AbortError') return 'cancelled';
